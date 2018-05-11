@@ -5,7 +5,7 @@ from types import MethodType
 import numpy as np
 
 
-DEBUG_INFO = True
+DEBUG_INFO = False
 
 param_prefixes = ['_prior_loc_', '_prior_scale_', '_posterior_loc_', '_posterior_scale_']
 
@@ -28,13 +28,19 @@ def bayesify_parameter(l, key):
     shape = value.data.shape
     
     loc, scale = (0., 1.)
+
+    val = l._parameters[key].data
+    del l._parameters[key]
+
+    l.register_buffer(key, val)
     l.register_buffer('_prior_loc_%s' % key, loc * torch.ones(*shape))
     l.register_buffer('_prior_scale_%s' % key, scale * torch.ones(*shape))
     l._distributions['prior_%s' % key] = Normal(l._buffers['_prior_loc_%s' % key],
                                                 l._buffers['_prior_scale_%s' % key])
 
-    l.register_parameter('_posterior_loc_%s' % key, nn.Parameter(loc * torch.ones(*shape, requires_grad=True)))
-    l.register_parameter('_posterior_scale_%s' % key, nn.Parameter(scale * torch.ones(*shape, requires_grad=True)))
+    
+    l.register_parameter('_posterior_loc_%s' % key, nn.Parameter((loc * torch.ones(*shape)).requires_grad_()))
+    l.register_parameter('_posterior_scale_%s' % key, nn.Parameter((scale * torch.ones(*shape)).requires_grad_()))
     l._distributions['posterior_%s' % key] = Normal(l._parameters['_posterior_loc_%s' % key],
                                                     l._parameters['_posterior_scale_%s' % key])
 
@@ -45,16 +51,16 @@ def bayesify_parameter(l, key):
 def sampling_hook(m, i):
     for key in m._variational_parameters:
         if DEBUG_INFO: print('Sampling ' + key)
-        m._parameters[key] = m._distributions['posterior_%s' % key].rsample()
+        setattr(m, key, m._distributions['posterior_%s' % key].rsample())
         
 def get_var_cost(m):
-    # Regularizer and noise according to Sctochastic Gradient Langevin Dynamics
+    # Stochastic Gradient Langevin Dynamics
 
-    var_cost = 2 * torch.randn(1) # noise
-    
+    var_cost = torch.tensor(0.)
+
     if hasattr(m, '_variational_parameters'):    
         for key in m._variational_parameters:
-            sample = m._parameters[key]
+            sample = getattr(m, key)
             prior_distr = m._distributions['prior_%s' % key]
             var_cost = var_cost + prior_distr.log_prob(sample).sum() # regularizer
 
