@@ -48,10 +48,24 @@ def bayesify_parameter(l, key):
 
     if DEBUG_INFO: print('Parameter %s in %s is bayesified' % (key, str(l)))
 
-def sampling_hook(m, i):
+def pre_forward_sampling_hook(m, i):
     for key in m._variational_parameters:
         if DEBUG_INFO: print('Sampling ' + key)
         setattr(m, key, m._distributions['posterior_%s' % key].rsample())
+
+    for child in m.children():
+        for key in child._variational_parameters:
+            if DEBUG_INFO: print('Sampling ' + key)
+            setattr(child, key, child._distributions['posterior_%s' % key].rsample())
+
+def forward_sampling_hook(m, i, o):
+    if not m._sampling:
+        m._sampling = True
+        n = m._n_samples
+        o_samples = torch.stack([o] + [m(*i) for _ in range(n - 1)])
+        o = o_samples.mean(0)
+        m._uncertainity = o_samples.std(0)
+        m._sampling = False
         
 def get_var_cost(m):
     # Stochastic Gradient Langevin Dynamics
@@ -70,13 +84,19 @@ def get_var_cost(m):
     
     return var_cost
 
-def bayesify(l):
+def bayesify(l, n_samples=10):
+    l._n_samples = n_samples
+    l.register_forward_pre_hook(pre_forward_sampling_hook)
+    l.register_forward_hook(forward_sampling_hook)
+    _bayesify(l)
+
+def _bayesify(l):
     keys   = []
     shapes = []
+    l._sampling = False
     if not hasattr(l, "_variational_parameters"):
         l._variational_parameters = []
         l._distributions = {}
-        l.register_forward_pre_hook(sampling_hook)
         l.get_var_cost = MethodType(get_var_cost, l)
 
     for key in list(l._parameters.keys()):
@@ -84,4 +104,4 @@ def bayesify(l):
             bayesify_parameter(l, key)
 
     for child in l.children():
-        bayesify(child)
+        _bayesify(child)
