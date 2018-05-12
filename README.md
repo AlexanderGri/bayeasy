@@ -2,9 +2,8 @@
 
 Lib allows to use Bayesian Neural Network incredibly easy. You can just use your favorite model/layers and by one transform them to bayesian layers. Enjoy!
 
-*Disclaimer: this is MVP for now, work is in progress*
 
-## Brief example of use
+## Example of use
 
 ```python
 import torch
@@ -17,9 +16,17 @@ x = Variable(torch.randn(2, 3))
 y = Variable(torch.randn(2, 5))
 
 model = Sequential(Linear(3, 5), Linear(5, 5))
-bayesify(model[0])
+bayesify(model[0], n_samples=100)
 
 y_pred = model(x)
 loss = mse_loss(y, y_pred) + get_var_cost(model)
 loss.backward()
 ```
+
+After forwarding some input you can estimate uncertainity:
+
+```
+print(model[0]._uncertainity)
+``` 
+
+For now there is only fully factorized gaussian distribution.
